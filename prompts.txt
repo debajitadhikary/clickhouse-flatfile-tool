@@ -1,0 +1,20 @@
+Fix Maven errors for ClickHouse JDBC project with duplicate dependencies.
+Resolve AppTest.java compilation failure in Maven build.
+Debug ClickHouse JDBC connection timeout on localhost:8123.
+Troubleshoot Docker container failing to start ClickHouse with port conflicts.
+Convert Java CLI tool to Spring Boot web app with HTML UI.
+Fix Spring Boot dependency injection error for IngestionController.
+Debug CORS issue in Spring Boot API calls from JavaScript fetch.
+Add ClickHouse to CSV export logic in Java.
+Resolve NullPointerException in exportToFile for empty tables.
+Troubleshoot CSV parsing errors with malformed price_paid.csv rows.
+Fix JSON schema inference failing for nested objects in JsonSchemaReader.
+Debug batch insertion slowdown in ClickHouseClient for large CSVs.
+Design modern CSS for data ingestion web UI with source selection and column checkbox.
+Fix UI checkbox state not persisting after form submission.
+Troubleshoot UI error messages not displaying for invalid JWT.
+Resolve file upload failure in Spring Boot for large CSV files.
+Debug Maven resource filtering issue for index.html in src/main/resources/static.
+Create world-class README for data ingestion project with Windows setup.
+Fix PowerShell command syntax for Invoke-WebRequest in README.
+Generate LaTeX report for ClickHouse-FlatFile assignment with header, description, photo, and prompts.
