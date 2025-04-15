@@ -1,9 +1,11 @@
 package com.debajit.clickhouse;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opencsv.CSVReader;
 import org.apache.commons.cli.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.io.File;
 import java.io.FileReader;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -12,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class ClickHouseClient {
     private static final Logger logger = LoggerFactory.getLogger(ClickHouseClient.class);
@@ -38,31 +41,35 @@ public class ClickHouseClient {
         return DriverManager.getConnection(url, user, jwtToken);
     }
 
-    public void createTableFromCsv(String csvPath, String tableName) throws Exception {
-        logger.info("Inferring schema for CSV: {}", csvPath);
-        CsvSchemaReader reader = new CsvSchemaReader();
-        List<CsvSchemaReader.Column> schema;
-        try {
-            schema = reader.inferSchema(csvPath);
-        } catch (Exception e) {
-            logger.error("Failed to infer schema: {}", e.getMessage());
-            throw new Exception("Schema inference failed", e);
+    public List<Column> inferSchema(String filePath) throws Exception {
+        if (filePath.toLowerCase().endsWith(".csv")) {
+            CsvSchemaReader csvReader = new CsvSchemaReader();
+            return csvReader.inferSchema(filePath);
+        } else if (filePath.toLowerCase().endsWith(".json")) {
+            JsonSchemaReader jsonReader = new JsonSchemaReader();
+            return jsonReader.inferSchema(filePath);
+        } else {
+            throw new Exception("Unsupported file format: " + filePath);
         }
+    }
 
+    public void createTableFromFile(String filePath, String tableName) throws Exception {
+        logger.info("Inferring schema for file: {}", filePath);
+        List<Column> schema = inferSchema(filePath);
         StringBuilder createQuery = new StringBuilder("CREATE TABLE IF NOT EXISTS ");
         createQuery.append(tableName).append(" (");
         for (int i = 0; i < schema.size(); i++) {
-            createQuery.append("`").append(schema.get(i).name).append("` ").append(schema.get(i).type);
+            createQuery.append("`").append(schema.get(i).getName()).append("` ").append(schema.get(i).getType());
             if (i < schema.size() - 1) {
                 createQuery.append(", ");
             }
         }
         createQuery.append(") ENGINE=MergeTree ORDER BY ");
         String orderBy = schema.stream()
-                .filter(col -> col.type.equals("DateTime") || col.type.equals("Date"))
+                .filter(col -> col.getType().equals("DateTime") || col.getType().equals("Date"))
                 .findFirst()
-                .map(col -> col.name)
-                .orElse(schema.get(0).name);
+                .map(Column::getName)
+                .orElse(schema.get(0).getName());
         createQuery.append(orderBy);
 
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -83,15 +90,25 @@ public class ClickHouseClient {
         }
     }
 
-    public void loadCsvData(String csvPath, String tableName) throws Exception {
-        logger.info("Loading data from {} into {}", csvPath, tableName);
+    public void loadFileData(String filePath, String tableName) throws Exception {
+        if (filePath.toLowerCase().endsWith(".csv")) {
+            loadCsvData(filePath, tableName);
+        } else if (filePath.toLowerCase().endsWith(".json")) {
+            loadJsonData(filePath, tableName);
+        } else {
+            throw new Exception("Unsupported file format: " + filePath);
+        }
+    }
+
+    private void loadCsvData(String filePath, String tableName) throws Exception {
+        logger.info("Loading CSV data from {} into {}", filePath, tableName);
         String insertQuery = "INSERT INTO " + tableName + " FORMAT CSV";
         List<String> batch = new ArrayList<>();
         int rowNum = 0;
         int errors = 0;
 
-        try (CSVReader reader = new CSVReader(new FileReader(csvPath))) {
-            String[] headers = reader.readNext(); // Skip header
+        try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
+            String[] headers = reader.readNext();
             rowNum++;
 
             for (String[] row; (row = reader.readNext()) != null; rowNum++) {
@@ -110,33 +127,62 @@ public class ClickHouseClient {
                         batch.clear();
                     }
                 } catch (Exception e) {
-                    logger.error("Skipping malformed row {}: {}", rowNum, e.getMessage());
+                    logger.error("Skipping malformed CSV row {}: {}", rowNum, e.getMessage());
                     errors++;
                 }
             }
 
-            // Load remaining rows
             if (!batch.isEmpty()) {
                 executeBatch(insertQuery, batch, tableName);
             }
 
-            logger.info("Loaded {} rows with {} errors", rowNum - 1 - errors, errors);
-            if (errors > 0) {
-                logger.warn("Encountered {} row errors during loading", errors);
-            }
+            logger.info("Loaded {} CSV rows with {} errors", rowNum - 1 - errors, errors);
         }
     }
 
+    private void loadJsonData(String filePath, String tableName) throws Exception {
+        logger.info("Loading JSON data from {} into {}", filePath, tableName);
+        String insertQuery = "INSERT INTO " + tableName + " FORMAT JSONEachRow";
+        List<String> batch = new ArrayList<>();
+        int rowNum = 0;
+        int errors = 0;
+
+        ObjectMapper mapper = new ObjectMapper();
+        List<Map<String, Object>> records = mapper.readValue(new File(filePath), List.class);
+
+        for (Map<String, Object> record : records) {
+            rowNum++;
+            try {
+                String jsonRow = mapper.writeValueAsString(record);
+                batch.add(jsonRow);
+
+                if (batch.size() >= BATCH_SIZE) {
+                    executeBatch(insertQuery, batch, tableName);
+                    batch.clear();
+                }
+            } catch (Exception e) {
+                logger.error("Skipping malformed JSON row {}: {}", rowNum, e.getMessage());
+                errors++;
+            }
+        }
+
+        if (!batch.isEmpty()) {
+            executeBatch(insertQuery, batch, tableName);
+        }
+
+        logger.info("Loaded {} JSON rows with {} errors", rowNum - errors, errors);
+    }
+
     private void executeBatch(String insertQuery, List<String> batch, String tableName) throws Exception {
-        StringBuilder csvData = new StringBuilder();
+        StringBuilder data = new StringBuilder();
         for (String row : batch) {
-            csvData.append(row).append("\n");
+            data.append(row).append("\n");
         }
 
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
                 logger.debug("Attempt {}: Inserting batch of {} rows", attempt, batch.size());
-                stmt.execute(insertQuery + " " + csvData.toString());
+                stmt.execute(insertQuery + " " + data.toString());
                 logger.debug("Batch inserted successfully");
                 return;
             } catch (SQLException e) {
@@ -175,7 +221,7 @@ public class ClickHouseClient {
 
     public static void main(String[] args) {
         Options options = new Options();
-        options.addOption("c", "csv", true, "Path to CSV file");
+        options.addOption("c", "csv", true, "Path to CSV or JSON file");
         options.addOption("t", "table", true, "Table name");
 
         CommandLineParser parser = new DefaultParser();
@@ -185,22 +231,19 @@ public class ClickHouseClient {
                 throw new ParseException("Missing required arguments: --csv and --table");
             }
 
-            String csvPath = cmd.getOptionValue("csv");
+            String filePath = cmd.getOptionValue("csv");
             String tableName = cmd.getOptionValue("table");
 
             ClickHouseClient client = new ClickHouseClient(
                 "localhost", "8123", "default", "default", "debajit-token-123"
             );
 
-            // Create table
             logger.info("Starting table creation for {}", tableName);
-            client.createTableFromCsv(csvPath, tableName);
+            client.createTableFromFile(filePath, tableName);
 
-            // Load data
             logger.info("Starting data load for {}", tableName);
-            client.loadCsvData(csvPath, tableName);
+            client.loadFileData(filePath, tableName);
 
-            // Verify
             List<String> tables = client.getTables();
             int rowCount = client.getRowCount(tableName);
             logger.info("Tables: {}", tables);
