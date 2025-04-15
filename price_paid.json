@@ -1,0 +1,4 @@
+[
+    {"id": "{5BBE9CB3-6332-4EB0-9CD3-8737CEA4A65A}", "price": 42000, "date": "1995-12-21 00:00:00", "postcode": "NE4 9DN", "property_type": "S", "old_new": "N", "duration": "F", "paon": "8", "saon": "", "street": "MATFEN PLACE", "locality": "FENHAM", "city": "NEWCASTLE UPON TYNE", "district": "NEWCASTLE UPON TYNE", "county": "TYNE AND WEAR", "ppd_category": "A", "record_status": "A"},
+    {"id": "{FCDBEAA4-1684-4BE6-B81F-A6B291EEBE07}", "price": 87000, "date": "1995-07-18 00:00:00", "postcode": "NW5 2NU", "property_type": "F", "old_new": "N", "duration": "L", "paon": "64", "saon": "FIRST AND SECOND FLOOR FLAT", "street": "LEVERTON STREET", "locality": "LONDON", "city": "LONDON", "district": "CAMDEN", "county": "GREATER LONDON", "ppd_category": "A", "record_status": "A"}
+]
