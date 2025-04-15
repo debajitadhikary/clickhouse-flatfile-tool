@@ -1,10 +1,126 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>ClickHouse-FlatFile Tool</title>
+    <title>ClickHouse-FlatFile Ingestion</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        .section { margin-bottom: 20px; }
+        #status { color: blue; }
+        #error { color: red; }
+    </style>
 </head>
 <body>
-    <h1>Welcome to the Ingestion Tool</h1>
+    <h1>ClickHouse-FlatFile Ingestion Tool</h1>
+    <div class="section">
+        <label>Source:</label>
+        <select id="source" onchange="toggleSource()">
+            <option value="clickhouse">ClickHouse</option>
+            <option value="flatfile">Flat File</option>
+        </select>
+    </div>
+    <div id="clickhouse-config" class="section">
+        <h3>ClickHouse Config</h3>
+        <label>Host: <input id="host" value="localhost"></label><br>
+        <label>Port: <input id="port" value="8123"></label><br>
+        <label>Database: <input id="database" value="default"></label><br>
+        <label>User: <input id="user" value="default"></label><br>
+        <label>JWT Token: <input id="jwtToken" value="debajit-token-123"></label><br>
+        <button onclick="connect()">Connect</button>
+    </div>
+    <div id="flatfile-config" class="section" style="display: none;">
+        <h3>Flat File Config</h3>
+        <label>File: <input type="file" id="file"></label><br>
+        <label>Delimiter: <input id="delimiter" value=","></label><br>
+    </div>
+    <div id="schema" class="section">
+        <h3>Columns</h3>
+        <div id="columns"></div>
+        <button onclick="loadSchema()">Load Columns</button>
+    </div>
+    <div class="section">
+        <label>Target Table/File: <input id="target" value="uk_price_paid"></label><br>
+        <button onclick="startIngestion()">Start Ingestion</button>
+    </div>
+    <div id="status"></div>
+    <div id="error"></div>
+    <script>
+        function toggleSource() {
+            const source = document.getElementById("source").value;
+            document.getElementById("clickhouse-config").style.display = source === "clickhouse" ? "block" : "none";
+            document.getElementById("flatfile-config").style.display = source === "flatfile" ? "block" : "none";
+        }
+
+        async function connect() {
+            document.getElementById("status").innerText = "Connecting...";
+            try {
+                const config = {
+                    host: document.getElementById("host").value,
+                    port: document.getElementById("port").value,
+                    database: document.getElementById("database").value,
+                    user: document.getElementById("user").value,
+                    jwtToken: document.getElementById("jwtToken").value
+                };
+                const response = await fetch("/api/connect", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(config)
+                });
+                const result = await response.json();
+                document.getElementById("status").innerText = result.status;
+                document.getElementById("columns").innerHTML = result.tables.map(t => `<div>${t}</div>`).join("");
+            } catch (e) {
+                document.getElementById("error").innerText = e.message;
+            }
+        }
+
+        async function loadSchema() {
+            document.getElementById("status").innerText = "Fetching schema...";
+            const source = document.getElementById("source").value;
+            const formData = new FormData();
+            formData.append("source", source);
+            if (source === "flatfile") {
+                formData.append("file", document.getElementById("file").files[0]);
+            } else {
+                formData.append("table", document.getElementById("target").value);
+            }
+            try {
+                const response = await fetch("/api/schema", {
+                    method: "POST",
+                    body: formData
+                });
+                const columns = await response.json();
+                document.getElementById("columns").innerHTML = columns.map(c =>
+                    `<label><input type="checkbox" value="${c.name}" checked> ${c.name} (${c.type})</label><br>`
+                ).join("");
+                document.getElementById("status").innerText = "Schema loaded";
+            } catch (e) {
+                document.getElementById("error").innerText = e.message;
+            }
+        }
+
+        async function startIngestion() {
+            document.getElementById("status").innerText = "Ingesting...";
+            const source = document.getElementById("source").value;
+            const formData = new FormData();
+            formData.append("source", source);
+            formData.append("table", document.getElementById("target").value);
+            if (source === "flatfile") {
+                formData.append("file", document.getElementById("file").files[0]);
+            }
+            const columns = Array.from(document.getElementById("columns").querySelectorAll("input:checked"))
+                .map(input => input.value);
+            formData.append("columns", JSON.stringify(columns));
+            try {
+                const response = await fetch("/api/ingest", {
+                    method: "POST",
+                    body: formData
+                });
+                const result = await response.json();
+                document.getElementById("status").innerText = `Completed: ${result.count} records`;
+            } catch (e) {
+                document.getElementById("error").innerText = e.message;
+            }
+        }
+    </script>
 </body>
 </html>
