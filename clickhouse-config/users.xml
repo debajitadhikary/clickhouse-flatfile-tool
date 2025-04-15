@@ -1,0 +1,9 @@
+<clickhouse>
+    <users>
+        <default>
+            <password>debajit-token-123</password>
+            <access_management>1</access_management>
+            <profile>default</profile>
+        </default>
+    </users>
+</clickhouse>
