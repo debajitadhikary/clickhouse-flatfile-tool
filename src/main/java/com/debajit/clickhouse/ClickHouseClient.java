@@ -1,13 +1,15 @@
 package com.debajit.clickhouse;
 
 import com.opencsv.CSVReader;
+import org.apache.commons.cli.*;
 import java.io.FileReader;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
+
 public class ClickHouseClient {
     private final String host;
     private final String port;
@@ -39,7 +41,14 @@ public class ClickHouseClient {
                 createQuery.append(", ");
             }
         }
-        createQuery.append(") ENGINE=MergeTree ORDER BY date");
+        createQuery.append(") ENGINE=MergeTree ORDER BY ");
+        // Use date if available, else first column
+        String orderBy = schema.stream()
+                .filter(col -> col.type.equals("DateTime") || col.type.equals("Date"))
+                .findFirst()
+                .map(col -> col.name)
+                .orElse(schema.get(0).name);
+        createQuery.append(orderBy);
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
             stmt.execute(createQuery.toString());
@@ -48,8 +57,10 @@ public class ClickHouseClient {
 
     public void loadCsvData(String csvPath, String tableName) throws Exception {
         String insertQuery = "INSERT INTO " + tableName + " FORMAT CSVWithNames";
-        StringBuilder csvData = new StringBuilder();
-        try (CSVReader reader = new CSVReader(new FileReader(csvPath))) {
+        try (Connection conn = connect(); Statement stmt = conn.createStatement();
+             CSVReader reader = new CSVReader(new FileReader(csvPath))) {
+            stmt.execute(insertQuery + " SETTINGS input_format_csv_skip_first_line = 1");
+            StringBuilder csvData = new StringBuilder();
             String[] headers = reader.readNext(); // Skip header
             for (String[] row; (row = reader.readNext()) != null; ) {
                 for (int i = 0; i < row.length; i++) {
@@ -60,9 +71,6 @@ public class ClickHouseClient {
                 }
                 csvData.append("\n");
             }
-        }
-        try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
-            stmt.execute(insertQuery + " SETTINGS input_format_csv_skip_first_line = 1");
             stmt.execute(insertQuery + " " + csvData.toString());
         }
     }
@@ -91,24 +99,40 @@ public class ClickHouseClient {
     }
 
     public static void main(String[] args) {
+        Options options = new Options();
+        options.addOption("c", "csv", true, "Path to CSV file");
+        options.addOption("t", "table", true, "Table name");
+
+        CommandLineParser parser = new DefaultParser();
         try {
+            CommandLine cmd = parser.parse(options, args);
+            if (!cmd.hasOption("csv") || !cmd.hasOption("table")) {
+                throw new ParseException("Missing required arguments: --csv and --table");
+            }
+
+            String csvPath = cmd.getOptionValue("csv");
+            String tableName = cmd.getOptionValue("table");
+
             ClickHouseClient client = new ClickHouseClient(
                 "localhost", "8123", "default", "default", "debajit-token-123"
             );
-            String csvPath = "C:/Users/DEBAJIT/Desktop/clickhouse-flatfile-tool/price_paid.csv";
-            String tableName = "uk_price_paid";
 
             // Create table
+            System.out.println("Creating table: " + tableName);
             client.createTableFromCsv(csvPath, tableName);
-            System.out.println("Table created: " + tableName);
 
             // Load data
+            System.out.println("Loading data into: " + tableName);
             client.loadCsvData(csvPath, tableName);
-            System.out.println("Data loaded into: " + tableName);
 
             // Verify
             System.out.println("Tables: " + client.getTables());
-            System.out.println("Row count: " + client.getRowCount(tableName));
+            System.out.println("Row count for " + tableName + ": " + client.getRowCount(tableName));
+
+        } catch (ParseException e) {
+            System.err.println("Error: " + e.getMessage());
+            HelpFormatter formatter = new HelpFormatter();
+            formatter.printHelp("java -jar clickhouse-flatfile-tool.jar", options);
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
