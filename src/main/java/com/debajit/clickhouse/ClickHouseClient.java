@@ -23,11 +23,12 @@ public class ClickHouseClient {
     }
 
     public Connection connect() throws Exception {
-        // Register the driver class explicitly
-        Class.forName("com.clickhouse.jdbc.ClickHouseDriver"); // Load the correct driver class
-
-        String url = "jdbc:clickhouse://localhost:8123/default"; // Corrected JDBC URL
-        return DriverManager.getConnection(url, user, jwtToken);
+        String url = String.format("jdbc:clickhouse://%s:%s/%s", host, port, database);
+        try {
+            return DriverManager.getConnection(url, user, jwtToken);
+        } catch (Exception e) {
+            throw new Exception("Failed to connect to ClickHouse: " + e.getMessage(), e);
+        }
     }
 
     public List<String> getTables() throws Exception {
@@ -38,6 +39,8 @@ public class ClickHouseClient {
             while (rs.next()) {
                 tables.add(rs.getString("name"));
             }
+        } catch (Exception e) {
+            throw new Exception("Failed to fetch tables: " + e.getMessage(), e);
         }
         return tables;
     }
@@ -45,7 +48,7 @@ public class ClickHouseClient {
     public static void main(String[] args) {
         try {
             ClickHouseClient client = new ClickHouseClient(
-                "localhost", "8123", "default", "default", "your-secret-jwt-token"
+                "localhost", "8123", "default", "default", "debajit-token-123"
             );
             List<String> tables = client.getTables();
             System.out.println("Tables: " + tables);
